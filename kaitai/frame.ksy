@@ -131,4 +131,29 @@ types:
       - id: length
         type: s4
       - id: string_table
+        type: string_tables
         size: length
+
+    types:
+      string_tables:
+        seq:
+          - id: num_tables
+            type: u1
+          - id: tables
+            type: string_table
+            repeat: expr
+            repeat-expr: num_tables
+
+        types:
+          string_table:
+            seq:
+              - id: tablename
+                type: strz
+                encoding: ascii
+              - id: num_strings
+                type: s2
+              - id: strings
+                type: strz
+                encoding: ascii
+                repeat: expr
+                repeat-expr: num_strings
