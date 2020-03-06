@@ -22,8 +22,14 @@ struct string_table_t {
 
 std::vector<string_table_t> tables;
 
-int main() {
-    std::ifstream is("003398941675291148561_0026512090.dem", std::ifstream::binary);
+int main(int argc, char** argv) {
+    if (argc <= 1) {
+        auto prog = std::string(argv[0]);
+        auto progname = prog.substr(prog.find_last_of("/\\") + 1);
+        std::cout << "usage: " << progname << " <demopath>" << std::endl;
+        exit(1);
+    }
+    std::ifstream is(argv[1], std::ifstream::binary);
     hl2demo::dstream demo(&is);
     hl2demo::header_t header(&demo);
     header.printDebug(0);
@@ -33,7 +39,6 @@ int main() {
     while (!demo.is_eof()) {
         hl2demo::frame_t frame(&demo);
         frames++;
-//        std::cout << "frame: " << frames << " type="<< frame.frame_type() << std::endl;
         switch (frame.frame_type()) {
             case hl2demo::FRAME_TYPE_DEM_PACKET:
             case hl2demo::FRAME_TYPE_DEM_SIGNON: {
