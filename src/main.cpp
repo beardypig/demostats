@@ -1,31 +1,13 @@
 #include <iostream>
 #include <fstream>
 #include <netmessages.pb.h>
+#include "hl2demo/header.h"
+#include "hl2demo/frame.h"
+#include "hl2demo/string_table_update.h"
+#include "hl2demo/dstream.h"
+#include <chrono>
 
-#include "string_table_update.h"
-#include "vlq_base128_le.h"
-#include "message.h"
-#include "frame.h"
-#include "header.h"
-#include "demoparser.h"
-#include "player_info.h"
-
-struct player_death {
-    int userid;
-    int attacker;
-    int assister;
-    bool assistedflash;
-    std::string weapon;
-    std::string weapon_itemid;
-    std::string weapon_fauxitemid;
-    std::string weapon_originalowner_xuid;
-    bool headshot;
-    int dominated;
-    int revenge;
-    int wipe;
-    int penetrated;
-    bool noreplay;
-};
+using namespace std::chrono;
 
 struct string_table_t {
     size_t id;
@@ -35,291 +17,230 @@ struct string_table_t {
     bool user_data_fixed_size;
     int flags;
     std::string name;
-    std::vector<sting_table_entry_t> entries;
+    std::vector<hl2demo::sting_table_entry_t> entries;
 };
 
-std::vector<std::unique_ptr<player_info_t>> players;
 std::vector<string_table_t> tables;
 
 int main() {
-    bool complete = false;
+    std::ifstream is("003398941675291148561_0026512090.dem", std::ifstream::binary);
+    hl2demo::dstream demo(&is);
+    hl2demo::header_t header(&demo);
+    header.printDebug(0);
+    int frames = 0;
+    auto start = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
 
-    std::ifstream is("003391530591110299847_1909302021.dem", std::ifstream::binary);
-    demostream demo(&is);
-
-    std::cout << "Map: " << demo.demo->header()->map_name() << std::endl;
-
-    CSVCMsg_GameEventList gameEventList;
-
-    for (frame_t* frame : *demo.demo->frames()) {
-        switch (frame->frame_type()) {
-            case frame_t::FRAME_TYPE_DEM_PACKET:
-            case frame_t::FRAME_TYPE_DEM_SIGNON: {
-                auto packet = dynamic_cast<frame_t::frame_packet_t *>(frame->body());
-                for (auto const &message : *packet->messages()->messages()) {
-                    int32_t msg_type_id = message->msg_type_id()->value();
+    while (!demo.is_eof()) {
+        hl2demo::frame_t frame(&demo);
+        frames++;
+//        std::cout << "frame: " << frames << " type="<< frame.frame_type() << std::endl;
+        switch (frame.frame_type()) {
+            case hl2demo::FRAME_TYPE_DEM_PACKET:
+            case hl2demo::FRAME_TYPE_DEM_SIGNON: {
+                auto packet = dynamic_cast<hl2demo::frame_packet_t *>(frame.body());
+                for (auto const &message : packet->messages()) {
+                    int32_t msg_type_id = message->msg_type_id();
+                    const std::string& data = message->data();
                     if (SVC_Messages_IsValid(msg_type_id)) {
-                        //std::cout << frame->tick() << ": " << SVC_Messages_Name(msg_type_id) << std::endl;
-                        std::string data = message->data();
                         switch (static_cast<SVC_Messages>(msg_type_id)) {
-                            case svc_ServerInfo:
+                            case svc_ServerInfo: {
+                                auto m = message->message<CSVCMsg_ServerInfo>();
                                 break;
-                            case svc_SendTable:
+                            }
+                            case svc_SendTable: {
+                                auto m = message->message<CSVCMsg_SendTable>();
                                 break;
-                            case svc_ClassInfo:
+                            }
+                            case svc_ClassInfo: {
+                                auto m = message->message<CSVCMsg_ClassInfo>();
                                 break;
-                            case svc_SetPause:
+                            }
+                            case svc_SetPause: {
+                                auto m = message->message<CSVCMsg_SetPause>();
                                 break;
+                            }
                             case svc_CreateStringTable: {
-                                CSVCMsg_CreateStringTable create_msg;
-                                CSVCMsg_UpdateStringTable svc_msg;
-
-                                create_msg.ParseFromString(data);
-                                std::cout << "New Table: " << create_msg.name() << std::endl;
-
-                                // TODO: not have to reverse these bytes
-                                // kaitai reads bits from msb to lsb, but they are actually encoded lsb to msb
-                                std::string table_data;
-                                for (const auto &c : create_msg.string_data()) {
-                                    int temp;
-                                    char reversed = 0;
-                                    for (int i = 0; i < 8; i++) {
-                                        temp = (c & (1 << i));
-                                        if(temp) {
-                                            reversed |= (1 << ((8 - 1) - i)) & 0xff;
-                                        }
-                                    }
-                                    table_data.push_back(reversed);
-                                }
-                                std::stringstream update_stream(table_data);
-                                kaitai::kstream ks(&update_stream);
-
-                                int temp = create_msg.max_entries();
-                                int entry_bits = 0;
-                                while (temp >>= 1) ++entry_bits;
-                                string_table_update_t stu(create_msg.num_entries(), create_msg.max_entries(), create_msg.user_data_size(), create_msg.user_data_size_bits(), create_msg.user_data_fixed_size(), &ks);
-                                auto newTable = string_table_t {
-                                    tables.size(),
-                                    create_msg.max_entries(),
-                                    create_msg.user_data_size(),
-                                    create_msg.user_data_size_bits(),
-                                    create_msg.user_data_fixed_size(),
-                                    create_msg.flags(),
-                                    create_msg.name(),
-                                    stu.entries()
-                                };
-
-                                tables.push_back(newTable);
-
-                                if (create_msg.name() == "userinfo") {
-                                    std::cout << "Creating player info table:" << std::endl;
-                                    players.resize(create_msg.max_entries());
-                                    for (auto const &entry : stu.entries()) {
-                                        if (entry.has_userdata()) {
-                                            std::stringstream userdata_stream(entry.userdata());
-                                            kaitai::kstream uks(&userdata_stream);
-                                            players[entry.entry()] = std::make_unique<player_info_t>(&uks);
-                                            std::cout << players[entry.entry()]->user_id() << " : " << players[entry.entry()]->name() << std::endl;
-                                        }
-                                    }
-                                }
-
+                                auto m = message->message<CSVCMsg_CreateStringTable>();
+                                break;
                             }
-                            break;
                             case svc_UpdateStringTable: {
-                                CSVCMsg_UpdateStringTable update_msg;
-                                update_msg.ParseFromString(data);
-
-                                auto table = tables[update_msg.table_id()];
-
-                                std::string table_data;
-                                for (const auto &c : update_msg.string_data()) {
-                                    int temp;
-                                    char reversed = 0;
-                                    for (int i = 0; i < 8; i++) {
-                                        temp = (c & (1 << i));
-                                        if(temp) {
-                                            reversed |= (1 << ((8 - 1) - i)) & 0xff;
-                                        }
-                                    }
-                                    table_data.push_back(reversed);
-                                }
-                                std::stringstream update_stream(table_data);
-                                kaitai::kstream ks(&update_stream);
-
-                                string_table_update_t stu(update_msg.num_changed_entries(),
-                                                          table.max_entries,
-                                                          table.user_data_size,
-                                                          table.user_data_size_bits,
-                                                          table.user_data_fixed_size,
-                                                          &ks);
-
-                                for (auto const &entry : stu.entries()) {
-                                    for (size_t i = 0; i < table.entries.size(); ++i) {
-                                        if (entry.entry() == table.entries[i].entry()) {
-                                            table.entries[i] = entry;
-                                        }
-                                    }
-                                }
-
-                                if (table.name == "userinfo") {
-                                    std::cout << "Updating player info table:" << std::endl;
-                                    for (auto const &entry : table.entries) {
-                                        if (entry.has_userdata()) {
-                                            std::stringstream userdata_stream(entry.userdata());
-                                            kaitai::kstream uks(&userdata_stream);
-                                            players[entry.entry()] = std::make_unique<player_info_t>(&uks);
-                                        }
-                                    }
-                                }
-
+                                auto m = message->message<CSVCMsg_UpdateStringTable>();
+                                break;
                             }
+                            case svc_VoiceInit: {
+                                auto m = message->message<CSVCMsg_VoiceInit>();
                                 break;
-                            case svc_VoiceInit:
+                            }
+                            case svc_VoiceData: {
+                                auto m = message->message<CSVCMsg_VoiceData>();
                                 break;
-                            case svc_VoiceData:
-                                break;
+                            }
                             case svc_Print: {
-                                CSVCMsg_Print svc_msg;
-                                svc_msg.ParseFromString(data);
-                                if (svc_msg.has_text()) {
-                                    std::cout << "svc_Print: " << svc_msg.text();
-                                }
+                                auto m = message->message<CSVCMsg_Print>();
                                 break;
                             }
-                            case svc_Sounds:
+                            case svc_Sounds: {
+                                auto m = message->message<CSVCMsg_Sounds>();
                                 break;
-                            case svc_SetView:
+                            }
+                            case svc_SetView: {
+                                auto m = message->message<CSVCMsg_SetView>();
                                 break;
-                            case svc_FixAngle:
+                            }
+                            case svc_FixAngle: {
+                                auto m = message->message<CSVCMsg_FixAngle>();
                                 break;
-                            case svc_CrosshairAngle:
+                            }
+                            case svc_CrosshairAngle: {
+                                auto m = message->message<CSVCMsg_CrosshairAngle>();
                                 break;
-                            case svc_BSPDecal:
+                            }
+                            case svc_BSPDecal: {
+                                auto m = message->message<CSVCMsg_BSPDecal>();
                                 break;
-                            case svc_SplitScreen:
+                            }
+                            case svc_SplitScreen: {
+                                auto m = message->message<CSVCMsg_SplitScreen>();
                                 break;
-                            case svc_UserMessage:
+                            }
+                            case svc_UserMessage: {
+                                auto m = message->message<CSVCMsg_UserMessage>();
                                 break;
-                            case svc_EntityMessage:
+                            }
+                            case svc_EntityMessage: {
+                                auto m = message->message<CSVCMsg_EntityMsg>();
                                 break;
+                            }
                             case svc_GameEvent: {
-                                CSVCMsg_GameEvent gameEvent;
-                                gameEvent.ParseFromString(data);
-                                CSVCMsg_GameEventList_descriptor_t gameEventDescriptor;
-
-                                for (auto const &descriptor : gameEventList.descriptors()) {
-                                    if (descriptor.eventid() == gameEvent.eventid()) {
-                                        gameEvent.set_event_name(descriptor.name());
-                                        gameEventDescriptor = descriptor;
-                                        break;
-                                    }
-                                }
-
-                                if (gameEvent.event_name() == "player_death") {
-                                    auto death = player_death {
-                                            gameEvent.keys()[0].val_short(),
-                                            gameEvent.keys()[1].val_short(),
-                                            gameEvent.keys()[2].val_short(),
-                                            gameEvent.keys()[3].val_bool(),
-                                            gameEvent.keys()[4].val_string(),
-                                            gameEvent.keys()[5].val_string(),
-                                            gameEvent.keys()[6].val_string(),
-                                            gameEvent.keys()[7].val_string(),
-                                            gameEvent.keys()[8].val_bool(),
-                                            gameEvent.keys()[9].val_short(),
-                                            gameEvent.keys()[10].val_short(),
-                                            gameEvent.keys()[11].val_short(),
-                                            gameEvent.keys()[12].val_short(),
-                                            gameEvent.keys()[13].val_bool(),
-                                    };
-
-                                    //std::cout << gameEventDescriptor.DebugString();
-                                    //std::cout << gameEvent.DebugString();
-                                    std::cout << death.attacker << " killed " << death.userid << " with " << death.weapon << std::endl;
-                                }
-
+                                auto m = message->message<CSVCMsg_GameEvent>();
                                 break;
                             }
-                            case svc_PacketEntities:
+                            case svc_PacketEntities: {
+                                auto m = message->message<CSVCMsg_PacketEntities>();
                                 break;
-                            case svc_TempEntities:
+                            }
+                            case svc_TempEntities: {
+                                auto m = message->message<CSVCMsg_TempEntities>();
                                 break;
-                            case svc_Prefetch:
+                            }
+                            case svc_Prefetch: {
+                                auto m = message->message<CSVCMsg_Prefetch>();
                                 break;
-                            case svc_Menu:
+                            }
+                            case svc_Menu: {
+                                auto m = message->message<CSVCMsg_Menu>();
                                 break;
+                            }
                             case svc_GameEventList: {
-                                gameEventList.ParseFromString(data);
+                                auto m = message->message<CSVCMsg_GameEventList>();
                                 break;
                             }
-                            case svc_GetCvarValue:
+                            case svc_GetCvarValue: {
+                                auto m = message->message<CSVCMsg_GetCvarValue>();
                                 break;
-                            case svc_PaintmapData:
+                            }
+                            case svc_PaintmapData: {
+                                auto m = message->message<CSVCMsg_PaintmapData>();
                                 break;
-                            case svc_CmdKeyValues:
+                            }
+                            case svc_CmdKeyValues: {
+                                auto m = message->message<CSVCMsg_CmdKeyValues>();
                                 break;
-                            case svc_EncryptedData:
+                            }
+                            case svc_EncryptedData: {
+                                auto m = message->message<CSVCMsg_EncryptedData>();
                                 break;
-                            case svc_HltvReplay:
+                            }
+                            case svc_HltvReplay: {
+                                auto m = message->message<CSVCMsg_HltvReplay>();
                                 break;
-                            case svc_Broadcast_Command:
+                            }
+                            case svc_Broadcast_Command: {
+                                auto m = message->message<CSVCMsg_Broadcast_Command>();
                                 break;
+                            }
                         }
-                    } else if (NET_Messages_IsValid(msg_type_id)) {
-                        //std::cout << frame->tick() << ": " << NET_Messages_Name(msg_type_id) << std::endl;
+                    }
+                    if (NET_Messages_IsValid(msg_type_id)){
                         switch (static_cast<NET_Messages>(msg_type_id)) {
-                            case net_NOP:
+                            case net_NOP: {
+                                auto m = message->message<CNETMsg_NOP>();
                                 break;
-                            case net_Disconnect:
+                            }
+                            case net_Disconnect: {
+                                auto m = message->message<CNETMsg_Disconnect>();
                                 break;
-                            case net_File:
+                            }
+                            case net_File: {
+                                auto m = message->message<CNETMsg_File>();
                                 break;
-                            case net_SplitScreenUser:
+                            }
+                            case net_SplitScreenUser: {
+                                auto m = message->message<CNETMsg_SplitScreenUser>();
                                 break;
-                            case net_Tick:
+                            }
+                            case net_Tick: {
+                                auto m = message->message<CNETMsg_Tick>();
                                 break;
-                            case net_StringCmd:
+                            }
+                            case net_StringCmd: {
+                                auto m = message->message<CNETMsg_StringCmd>();
                                 break;
-                            case net_SetConVar:
+                            }
+                            case net_SetConVar: {
+                                auto m = message->message<CNETMsg_SetConVar>();
                                 break;
-                            case net_SignonState:
+                            }
+                            case net_SignonState: {
+                                auto m = message->message<CNETMsg_SignonState>();
                                 break;
-                            case net_PlayerAvatarData:
+                            }
+                            case net_PlayerAvatarData: {
+                                auto m = message->message<CNETMsg_PlayerAvatarData>();
                                 break;
+                            }
                         }
                     }
                 }
-                break;
             }
-            case frame_t::FRAME_TYPE_DEM_SYNCTICK:
-                // just to update the current tick
-                break;
-            case frame_t::FRAME_TYPE_DEM_CONSOLECMD: {
-                auto consolecmd = dynamic_cast<frame_t::frame_consolecmd_t *>(frame->body());
-                break;
-            }
-            case frame_t::FRAME_TYPE_DEM_USERCMD: {
-                auto usercmd = dynamic_cast<frame_t::frame_usercmd_t *>(frame->body());
-                break;
-            }
-            case frame_t::FRAME_TYPE_DEM_DATATABLES: {
-                auto datatables = dynamic_cast<frame_t::frame_datatables_t *>(frame->body());
-                break;
-            }
-            case frame_t::FRAME_TYPE_DEM_STOP:
-                complete = true;
-                break;
-            case frame_t::FRAME_TYPE_DEM_CUSTOMDATA:
-                break;
-            case frame_t::FRAME_TYPE_DEM_STRINGTABLES:
-                auto string_table = dynamic_cast<frame_t::frame_stringtables_t *>(frame->body());
-                for (auto const &table : *string_table->string_table()->tables()) {
-                    std::cout << "table: " << table->tablename() << std::endl;
+            break;
 
+            case hl2demo::FRAME_TYPE_DEM_SYNCTICK: {
+                auto synctick = dynamic_cast<hl2demo::frame_synctick_t*>(frame.body());
+                break;
+            }
+            case hl2demo::FRAME_TYPE_DEM_CONSOLECMD:{
+                auto consolecmd = dynamic_cast<hl2demo::frame_consolecmd_t *>(frame.body());
+                break;
+            }
+            case hl2demo::FRAME_TYPE_DEM_USERCMD:{
+                auto usercmd = dynamic_cast<hl2demo::frame_usercmd_t *>(frame.body());
+                break;
+            }
+            case hl2demo::FRAME_TYPE_DEM_DATATABLES:{
+                auto datatable = dynamic_cast<hl2demo::frame_datatables_t *>(frame.body());
+                break;
+            }
+            case hl2demo::FRAME_TYPE_DEM_STOP:{
+                auto stop = dynamic_cast<hl2demo::frame_stop_t *>(frame.body());
+                break;
+            }
+            case hl2demo::FRAME_TYPE_DEM_CUSTOMDATA:{
+                auto customdata = dynamic_cast<hl2demo::frame_customdata_t *>(frame.body());
+                break;
+            }
+            case hl2demo::FRAME_TYPE_DEM_STRINGTABLES: {
+                auto string_table = dynamic_cast<hl2demo::frame_stringtables_t *>(frame.body());
+                for (auto const table : string_table->tables()) {
+                    std::cout << "table: " << table->table_name() << std::endl;
                 }
+            }
+            default:
+                std::cout << demo.tellg() << ": frame_type=" << frame.frame_type() << std::endl;
+                throw std::runtime_error("invalid frame type");
         }
     }
+    auto end = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
 
-    return 0;
+    std::cout << "frames: " << frames << ", time taken: " << end - start << "ms" << std::endl;
 }

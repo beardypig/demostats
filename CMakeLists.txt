@@ -1,39 +1,40 @@
 cmake_minimum_required(VERSION 3.9)
-project(demostats VERSION 0.1.0)
-set(CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
 
-find_package(Protobuf REQUIRED)
-add_subdirectory(messages)
-add_subdirectory(kaitai)
+set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
+include("${CMAKE_MODULE_PATH}/HunterGate.cmake")
+# Enable ExternalProject CMake module
+HunterGate(
+        URL "https://github.com/ruslo/hunter/archive/v0.23.11.tar.gz"
+        SHA1 "b732407d782459f89950ab52bc0ff9612f3e4be2"
+)
 
-set_property(SOURCE main.cpp APPEND PROPERTY OBJECT_DEPENDS ${KAITAI_OUTPUT})
+project(demostats VERSION 2.0.0)
 set(CMAKE_CXX_STANDARD 14)
 
+include(CTest)
+find_package(Protobuf REQUIRED)
+add_subdirectory(messages)
 
-set(SOURCES src/main.cpp)
-set(HEADERS )
+# custom options for MacOS
+if(APPLE)
+    set(CMAKE_MACOSX_RPATH ON)
+endif()
 
+set(SOURCES src/main.cpp src/hl2demo/dstream.cpp src/hl2demo/frame.cpp src/hl2demo/message.cpp src/hl2demo/string_table_update.cpp)
+set(HEADERS src/hl2demo/dstream.h src/hl2demo/header.h src/hl2demo/frame.h src/hl2demo/message.h src/hl2demo/string_table_update.h)
+configure_file(src/version.h.in ${CMAKE_BINARY_DIR}/generated/version.h)
+
+include_directories(${CMAKE_BINARY_DIR}/generated/)
 include_directories(${Protobuf_INCLUDE_DIRS})
 include_directories(${ProtobufIncludePath})
-include_directories(${KaitaiIncludePath})
-include_directories(${KaitaiRuntimeIncludePath})
 
-add_executable(${PROJECT_NAME} ${HEADERS} ${SOURCES} ${KaitaiRuntimeSource})
+add_executable(${PROJECT_NAME} ${HEADERS} ${SOURCES})
 
-target_include_directories(
-        ${PROJECT_NAME}
-        PRIVATE
-        ${PROJECT_SOURCE_DIR}
-        ${CMAKE_CURRENT_BINARY_DIR}
-)
-target_compile_definitions(
-        ${PROJECT_NAME}
-        PRIVATE
-        -DKS_STR_ENCODING_NONE
-)
-target_link_libraries(
-        ${PROJECT_NAME}
-        messages
-        kaitai
-        ${Iconv_LIBRARIES}
-)
+target_include_directories(${PROJECT_NAME} PRIVATE ${PROJECT_SOURCE_DIR} ${CMAKE_CURRENT_BINARY_DIR})
+# include the protobuf messages
+target_link_libraries(${PROJECT_NAME} messages)
+
+enable_testing()
+# compile static version for testing
+add_library(${PROJECT_NAME}_static STATIC ${HEADERS} ${SOURCES})
+add_subdirectory(tests)

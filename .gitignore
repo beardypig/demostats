@@ -36,3 +36,7 @@ cmake-*
 
 # IDE
 .idea
+
+# demo files
+*.dem
+*.dem.bz2
