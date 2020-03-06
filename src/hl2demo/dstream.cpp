@@ -187,7 +187,7 @@ int64_t hl2demo::dstream::s8le() {
 bool hl2demo::dstream::compare_fixed_string(const char *expected, size_t length) {
     char *actual = new char[length];
     read(actual, length);
-    return memcmp(expected, actual, length);
+    return memcmp(expected, actual, length) == 0;
 }
 
 std::string hl2demo::dstream::read(size_t len) {

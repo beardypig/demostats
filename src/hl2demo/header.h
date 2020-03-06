@@ -52,7 +52,9 @@ namespace hl2demo {
     }
 
     void header_t::read() {
-        io->compare_fixed_string("\x48\x4C\x32\x44\x45\x4D\x4F\x00", 8);
+        if (!io->compare_fixed_string("\x48\x4C\x32\x44\x45\x4D\x4F\x00", 8)) {
+            throw std::runtime_error("invalid demo magic number");
+        }
         m_demo_version = io->s4le();
         m_network_version = io->s4le();
         m_server_name = dstream::bytes_terminate(io->read(260));
