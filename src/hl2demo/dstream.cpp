@@ -89,9 +89,9 @@ uint64_t hl2demo::dstream::ulong(uint32_t nbits) {
         unsigned int nRet = m_bits & s_nMaskTable[ nbits ];
         m_bits_available -= nbits;
         if ( m_bits_available )
-        {
             m_bits >>= nbits;
-        }
+        else
+            m_bits_available = next_dword();
         return nRet;
     }
     else

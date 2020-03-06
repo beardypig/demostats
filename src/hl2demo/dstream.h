@@ -27,15 +27,6 @@
 #endif
 
 namespace hl2demo {
-    struct membuf : std::streambuf {
-        membuf(char* begin, size_t length) {
-            this->setg(begin, begin, begin+length);
-        }
-        membuf(char* begin, char* end) {
-            this->setg(begin, begin, end);
-        }
-    };
-
     class dstream {
     private:
         void init();
@@ -53,7 +44,6 @@ namespace hl2demo {
 
         explicit dstream(std::istream *io);
         explicit dstream(const std::string &data);
-        dstream(char *data, size_t length);
 
         // stream positioning
         bool is_eof();

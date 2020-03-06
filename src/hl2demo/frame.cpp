@@ -164,7 +164,7 @@ void hl2demo::frame_datatables_t::printDebug(uint32_t indent) const {
 
 void hl2demo::frame_datatables_t::read() {
     auto length = io->s4le();
-    m_data = dstream::bytes_terminate(io->read(length));
+    m_data = io->read(length);
 }
 
 void hl2demo::frame_customdata_t::printDebug(uint32_t indent) const {
@@ -173,29 +173,7 @@ void hl2demo::frame_customdata_t::printDebug(uint32_t indent) const {
 
 void hl2demo::frame_customdata_t::read() {
     auto length = io->s4le();
-    m_data = dstream::bytes_terminate(io->read(length));
-}
-
-void hl2demo::frame_stringtables_t::printDebug(uint32_t indent) const {
-    std::cout << std::string(indent, '\t') << "frame_stringtables_t" << std::endl;
-}
-
-void hl2demo::frame_stringtables_t::read() {
-    auto length = io->s4le();
-    m_data = dstream::bytes_terminate(io->read(length));
-    m_data_io = new dstream(m_data);
-    m_table_count = m_data_io->u1();
-    for (int i = 0; i < m_table_count; ++i) {
-        auto table = new frame_stringtable_t(m_data_io);
-        m_tables.push_back(table);
-    }
-}
-
-hl2demo::frame_stringtables_t::~frame_stringtables_t() {
-    delete m_data_io;
-    for (auto table : m_tables) {
-        delete table;
-    }
+    m_data = io->read(length);
 }
 
 void hl2demo::frame_consolecmd_t::printDebug(uint32_t indent) const {
@@ -254,15 +232,59 @@ hl2demo::frame_packet_t::split_t::split_t(hl2demo::dstream *io) : dstruct(io), m
     read();
 }
 
-void hl2demo::frame_stringtables_t::frame_stringtable_t::read() {
-    m_table_name = io->read_until('\x00');
-    m_table_size = io->s2le();
-    m_strings = new std::vector<std::string>();
-    for (int i = 0; i < m_table_size; i++) {
-        m_strings->push_back(io->read_until('\x00'));
+
+void hl2demo::frame_stringtables_t::printDebug(uint32_t indent) const {
+    std::cout << std::string(indent, '\t') << "frame_stringtables_t" << std::endl;
+}
+
+void hl2demo::frame_stringtables_t::read() {
+    auto length = io->ulong(32);
+    int table_count = io->ulong(8);
+    for (int i = 0; i < table_count; ++i) {
+        auto table = new frame_stringtable_t(io);
+        m_tables.push_back(table);
     }
 }
 
-hl2demo::frame_stringtables_t::frame_stringtable_t::frame_stringtable_t(hl2demo::dstream *io) : dstruct(io) {
-    read();
+hl2demo::frame_stringtables_t::~frame_stringtables_t() {
+    for (auto table : m_tables) {
+        delete table;
+    }
 }
+
+void hl2demo::frame_stringtables_t::frame_stringtable_t::read() {
+    m_table_name = io->read_until('\x00');
+    int table_size = io->ulong(16);
+    m_strings = new std::vector<frame_stringtable_entry_t*>();
+    m_client_strings = new std::vector<frame_stringtable_entry_t*>();
+    for (int i = 0; i < table_size; i++) {
+        m_strings->push_back(new frame_stringtable_entry_t(io));
+    }
+
+    if (io->ulong(1)) { // extra crap??
+        int client_table_size = io->ulong(16);
+        for (int i = 0; i < client_table_size; i++) {
+            m_client_strings->push_back(new frame_stringtable_entry_t(io));
+        }
+    }
+}
+void hl2demo::frame_stringtables_t::frame_stringtable_entry_t::read() {
+    m_string = io->read_until(0);
+    if (io->ulong(1)) {
+        int ud_size = io->ulong(16);
+        m_userdata = io->read(ud_size);
+    }
+}
+
+hl2demo::frame_stringtables_t::frame_stringtable_t::~frame_stringtable_t() {
+    for (auto table : *m_strings) {
+        delete table;
+    }
+    delete m_strings;
+
+    for (auto table : *m_client_strings) {
+        delete table;
+    }
+    delete m_client_strings;
+}
+

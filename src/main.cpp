@@ -34,6 +34,7 @@ int main(int argc, char** argv) {
     hl2demo::header_t header(&demo);
     header.printDebug(0);
     int frames = 0;
+    int previous_frame_type = -1;
     auto start = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
 
     while (!demo.is_eof()) {
@@ -236,14 +237,15 @@ int main(int argc, char** argv) {
             case hl2demo::FRAME_TYPE_DEM_STRINGTABLES: {
                 auto string_table = dynamic_cast<hl2demo::frame_stringtables_t *>(frame.body());
                 for (auto const table : string_table->tables()) {
-                    std::cout << "table: " << table->table_name() << std::endl;
+                    std::cout << "table: " << table->name() << std::endl;
                 }
                 break;
             }
             default:
-                std::cout << demo.tellg() << ": frame_type=" << frame.frame_type() << std::endl;
+                std::cout << demo.tellg() << ": frame_type=" << frame.frame_type() << ", previous_frame_type=" << previous_frame_type << std::endl;
                 throw std::runtime_error("invalid frame type");
         }
+        previous_frame_type = frame.frame_type();
     }
     auto end = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
 

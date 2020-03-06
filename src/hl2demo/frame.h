@@ -169,22 +169,34 @@ namespace hl2demo {
 
     class frame_stringtables_t : public dstruct {
     public:
+
+        class frame_stringtable_entry_t : public dstruct {
+        public:
+            explicit frame_stringtable_entry_t(dstream *io) : dstruct(io) { read(); }
+        private:
+            void read() final;
+            std::string m_string;
+            std::string m_userdata;
+        };
+
         class frame_stringtable_t : public dstruct {
         public:
-            explicit frame_stringtable_t(dstream *io);
+            explicit frame_stringtable_t(dstream *io) : dstruct(io) { read(); }
+            ~frame_stringtable_t();
 
-            const std::string &table_name() { return m_table_name; }
+            const std::string &name() { return m_table_name; }
 
-            const std::vector<std::string> &strings() { return *m_strings; }
+            const std::vector<frame_stringtable_entry_t*> &strings() { return *m_strings; }
+            const std::vector<frame_stringtable_entry_t*> &client_strings() { return *m_client_strings; }
 
         private:
             void read() final;
             std::string m_table_name;
-            int16_t m_table_size;
-            std::vector<std::string> *m_strings;
+            std::vector<frame_stringtable_entry_t*> *m_strings;
+            std::vector<frame_stringtable_entry_t *> *m_client_strings;
         };
 
-        frame_stringtables_t(dstream *io) : dstruct(io) {}
+        frame_stringtables_t(dstream *io) : dstruct(io) { read(); }
 
         ~frame_stringtables_t();
 
@@ -195,9 +207,6 @@ namespace hl2demo {
         const std::vector<frame_stringtable_t *> &tables() const { return m_tables; }
 
     private:
-        std::string m_data;
-        dstream *m_data_io;
-        uint8_t m_table_count;
         std::vector<frame_stringtable_t *> m_tables;
     };
 
