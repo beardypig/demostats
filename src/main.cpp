@@ -39,7 +39,7 @@ int main(int argc, char** argv) {
     while (!demo.is_eof()) {
         hl2demo::frame_t frame(&demo);
         frames++;
-        switch (frame.frame_type()) {
+        switch (static_cast<hl2demo::frame_type_t>(frame.frame_type())) {
             case hl2demo::FRAME_TYPE_DEM_PACKET:
             case hl2demo::FRAME_TYPE_DEM_SIGNON: {
                 auto packet = dynamic_cast<hl2demo::frame_packet_t *>(frame.body());
@@ -207,9 +207,8 @@ int main(int argc, char** argv) {
                         }
                     }
                 }
+                break;
             }
-            break;
-
             case hl2demo::FRAME_TYPE_DEM_SYNCTICK: {
                 auto synctick = dynamic_cast<hl2demo::frame_synctick_t*>(frame.body());
                 break;
@@ -239,6 +238,7 @@ int main(int argc, char** argv) {
                 for (auto const table : string_table->tables()) {
                     std::cout << "table: " << table->table_name() << std::endl;
                 }
+                break;
             }
             default:
                 std::cout << demo.tellg() << ": frame_type=" << frame.frame_type() << std::endl;
